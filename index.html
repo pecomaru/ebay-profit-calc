@@ -1,0 +1,762 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#0b6b5a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>eBay利益計算</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<style>
+/* Layout: スマホは1カラム + 下固定の結果バー。広い画面は 入力(左) / 結果(右・追従) の2カラム。 */
+:root {
+  --bg: #f1f4f6;
+  --surface: #ffffff;
+  --field: #f6f8fa;
+  --ink: #14202b;
+  --muted: #5b6a78;
+  --line: #dde3e9;
+  --accent: #0b6b5a;
+  --accent-ink: #ffffff;
+  --gain: #0a7a4b;
+  --gain-bg: #e3f4ea;
+  --loss: #c2392b;
+  --loss-bg: #fbe8e5;
+  --warn: #a65f00;
+  --warn-bg: #fdf0d8;
+  --font-body: "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, monospace;
+  --gutter: 16px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d141a;
+    --surface: #151f27;
+    --field: #0f1920;
+    --ink: #e8eef3;
+    --muted: #93a2b0;
+    --line: #26323d;
+    --accent: #4fc3a8;
+    --accent-ink: #06231c;
+    --gain: #4cd08a;
+    --gain-bg: #12301f;
+    --loss: #ff7b6b;
+    --loss-bg: #3a1c19;
+    --warn: #f0b34a;
+    --warn-bg: #36280e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d141a;
+  --surface: #151f27;
+  --field: #0f1920;
+  --ink: #e8eef3;
+  --muted: #93a2b0;
+  --line: #26323d;
+  --accent: #4fc3a8;
+  --accent-ink: #06231c;
+  --gain: #4cd08a;
+  --gain-bg: #12301f;
+  --loss: #ff7b6b;
+  --loss-bg: #3a1c19;
+  --warn: #f0b34a;
+  --warn-bg: #36280e;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.6;
+  padding-left: max(var(--gutter), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--gutter), env(safe-area-inset-right, 0px));
+  padding-block: 12px 110px;
+}
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wrap { max-width: 1020px; margin: 0 auto; }
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0 14px; flex-wrap: wrap; }
+h1 { font-size: 20px; margin: 0; letter-spacing: .02em; line-height: 1.3; }
+h1 small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
+
+.seg { display: inline-grid; grid-auto-flow: column; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 3px; }
+.seg { max-width: 100%; }
+.seg button { border: 0; background: transparent; padding: 9px 12px; white-space: nowrap; border-radius: 8px; min-height: 40px; cursor: pointer; font-weight: 500; font-size: 14px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+.cols { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 860px) {
+  .cols { grid-template-columns: minmax(0, 400px) minmax(0, 1fr); align-items: start; gap: 18px; }
+  .col-res { position: sticky; top: 12px; }
+  body { padding-bottom: 40px; }
+  .bar { display: none !important; }
+}
+.stack { display: grid; gap: 14px; min-width: 0; }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; min-width: 0; }
+.panel > h2 { font-size: 12px; margin: 0 0 10px; color: var(--muted); font-weight: 700; letter-spacing: .08em; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.span2 { grid-column: 1 / -1; }
+
+.f { display: grid; gap: 4px; min-width: 0; }
+.f .l { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+.f .w { display: flex; align-items: center; background: var(--field); border: 1px solid var(--line); border-radius: 10px; min-height: 50px; padding: 0 12px; gap: 6px; }
+.f .w:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.f .w i { font-style: normal; color: var(--muted); font-size: 14px; flex: none; }
+.f input { flex: 1; min-width: 0; width: 100%; border: 0; background: transparent; color: var(--ink); font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 500; padding: 10px 0; outline: none; text-align: right; }
+.f.off { opacity: .45; }
+
+.ratebox { display: grid; gap: 8px; }
+.now { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--muted); background: var(--field); border: 1px dashed var(--line); border-radius: 10px; padding: 8px 10px; }
+.now b { color: var(--ink); font-family: var(--font-num); font-size: 16px; font-weight: 600; }
+.now .sp { flex: 1; }
+.chip { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 6px 12px; min-height: 36px; cursor: pointer; font-size: 13px; font-weight: 500; }
+.chip.pri { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.chip:disabled { opacity: .4; cursor: default; }
+.diff { font-family: var(--font-num); }
+
+/* result */
+.hero { display: grid; gap: 4px; padding: 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+.hero.gain { background: var(--gain-bg); border-color: color-mix(in srgb, var(--gain) 35%, transparent); }
+.hero.loss { background: var(--loss-bg); border-color: color-mix(in srgb, var(--loss) 35%, transparent); }
+.hero.warn { background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+.hero .cap { font-size: 12.5px; color: var(--muted); font-weight: 500; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.hero .big { font-family: var(--font-num); font-size: 40px; font-weight: 600; line-height: 1.15; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.hero.gain .big, .hero.gain .pct { color: var(--gain); }
+.hero.loss .big, .hero.loss .pct { color: var(--loss); }
+.hero.warn .big, .hero.warn .pct { color: var(--warn); }
+.hero .sub { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 4px; }
+.hero .sub div { display: grid; }
+.hero .sub span:first-child { font-size: 12px; color: var(--muted); }
+.hero .sub span:last-child { font-family: var(--font-num); font-size: 19px; font-weight: 600; }
+.pill { font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 999px; background: var(--surface); border: 1px solid currentColor; }
+.hero.gain .pill { color: var(--gain); } .hero.loss .pill { color: var(--loss); } .hero.warn .pill { color: var(--warn); }
+
+table.t { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.t th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 4px 6px 6px 0; white-space: nowrap; }
+table.t th.r, table.t td.r { text-align: right; }
+table.t td { padding: 8px 0 8px 6px; border-top: 1px solid var(--line); }
+table.t td:first-child { padding-left: 0; }
+table.t td.r { font-family: var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.scroll { overflow-x: auto; }
+.pos { color: var(--gain); } .neg { color: var(--loss); }
+
+.rows { display: grid; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 14px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 14px; align-items: baseline; }
+.row:first-child { border-top: 0; }
+.row .n { color: var(--ink); min-width: 0; }
+.row .n small { color: var(--muted); font-size: 12px; }
+.row .v { font-family: var(--font-num); font-variant-numeric: tabular-nums; text-align: right; min-width: 5.2em; }
+.row.sum { font-weight: 700; }
+.row.head { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .08em; border-top: 0; padding-top: 14px; }
+.row.head + .row { border-top: 0; }
+
+details.panel > summary { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .08em; list-style: none; display: flex; justify-content: space-between; align-items: center; min-height: 28px; }
+details.panel > summary::-webkit-details-marker { display: none; }
+details.panel > summary::after { content: "＋"; font-size: 15px; }
+details.panel[open] > summary::after { content: "－"; }
+details.panel[open] > summary { margin-bottom: 12px; }
+
+.solve { display: grid; gap: 10px; }
+.solve .out { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.solve .out div { background: var(--field); border-radius: 10px; padding: 10px 12px; display: grid; }
+.solve .out span:first-child { font-size: 12px; color: var(--muted); }
+.solve .out span:last-child { font-family: var(--font-num); font-size: 20px; font-weight: 600; }
+
+.hist { display: grid; gap: 8px; margin-top: 12px; }
+.hist .it { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); }
+.hist .it .nm { font-weight: 500; overflow-wrap: anywhere; }
+.hist .it .meta { font-size: 12.5px; color: var(--muted); font-family: var(--font-num); }
+.hist .it .btns { display: flex; gap: 6px; }
+.hist .empty { color: var(--muted); font-size: 13px; }
+.name-in { display: flex; gap: 8px; }
+.name-in input { flex: 1; min-width: 0; font: inherit; font-size: 16px; background: var(--field); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; min-height: 44px; }
+
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 0 16px; min-height: 44px; cursor: pointer; font-weight: 500; }
+.btn.pri { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.hint { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; }
+
+.bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  background: var(--surface); border-top: 1px solid var(--line);
+  padding: 10px max(var(--gutter), env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(var(--gutter), env(safe-area-inset-left, 0px));
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  box-shadow: 0 -6px 18px rgba(0, 0, 0, .08);
+}
+.bar .a { display: grid; min-width: 0; }
+.bar .a span:first-child { font-size: 11.5px; color: var(--muted); }
+.bar .a b { font-family: var(--font-num); font-size: 24px; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; }
+.bar .b { text-align: right; display: grid; }
+.bar .b span:first-child { font-size: 11.5px; color: var(--muted); }
+.bar .b b { font-family: var(--font-num); font-size: 20px; font-weight: 600; line-height: 1.15; }
+.bar.gain b { color: var(--gain); } .bar.loss b { color: var(--loss); } .bar.warn b { color: var(--warn); }
+
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(86px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 999px; font-size: 13px; z-index: 30; opacity: 0; pointer-events: none; transition: opacity .2s; }
+.toast.on { opacity: .95; }
+@media (min-width: 860px) { .toast { bottom: 24px; } }
+@media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>eBay利益計算<small>数字を入れると、その場で純利益が出ます</small></h1>
+  <div class="seg" role="group" aria-label="配送タイプ">
+    <button type="button" id="m-ddp" aria-pressed="true">US DDP</button>
+    <button type="button" id="m-eco" aria-pressed="false">US エコノミー</button>
+    <button type="button" id="m-ddu" aria-pressed="false">US以外 DDU</button>
+  </div>
+</header>
+
+<div class="cols">
+  <!-- 入力 -->
+  <div class="stack col-in">
+    <section class="panel" aria-labelledby="h-rate">
+      <h2 id="h-rate">為替と関税</h2>
+      <div class="ratebox">
+        <div class="grid2">
+          <label class="f" id="f-duty"><span class="l">関税率</span>
+            <span class="w"><input id="duty" inputmode="decimal" autocomplete="off" aria-label="関税率"><i>%</i></span></label>
+          <label class="f"><span class="l">レート（1ドル）</span>
+            <span class="w"><i>¥</i><input id="rate" inputmode="decimal" autocomplete="off" aria-label="レート"></span></label>
+        </div>
+        <div class="now" id="now">
+          <span>現在</span><b id="nowv">取得中…</b>
+          <span id="nowd" class="diff"></span>
+          <span class="sp"></span>
+          <button type="button" class="chip pri" id="apply" disabled>適用</button>
+          <button type="button" class="chip" id="refresh" aria-label="レートを更新">更新</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="h-cost">
+      <h2 id="h-cost">円のコスト</h2>
+      <div class="grid2">
+        <label class="f span2"><span class="l">仕入れ</span>
+          <span class="w"><i>¥</i><input id="cost" inputmode="decimal" autocomplete="off" aria-label="仕入れ"></span></label>
+        <label class="f"><span class="l">輸出送料</span>
+          <span class="w"><i>¥</i><input id="ship" inputmode="decimal" autocomplete="off" aria-label="輸出送料"></span></label>
+        <label class="f"><span class="l">国内送料</span>
+          <span class="w"><i>¥</i><input id="dom" inputmode="decimal" autocomplete="off" aria-label="国内送料"></span></label>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="h-usd">
+      <h2 id="h-usd">売値（ドル）</h2>
+      <div class="grid2">
+        <label class="f span2"><span class="l">売価</span>
+          <span class="w"><i>$</i><input id="price" inputmode="decimal" autocomplete="off" aria-label="売価"></span></label>
+        <label class="f"><span class="l">バイヤー負担送料</span>
+          <span class="w"><i>$</i><input id="bship" inputmode="decimal" autocomplete="off" aria-label="バイヤー負担送料"></span></label>
+        <label class="f"><span class="l">バイヤー負担税金</span>
+          <span class="w"><i>$</i><input id="btax" inputmode="decimal" autocomplete="off" aria-label="バイヤー負担税金"></span></label>
+      </div>
+      <p class="hint" id="exhint">入力欄は例の数字です。実際の条件に書き換えてください。</p>
+    </section>
+  </div>
+
+  <!-- 結果 -->
+  <div class="stack col-res">
+    <section class="hero" id="hero" aria-live="polite">
+      <div class="cap"><span id="hcap">純利益（広告・ペイオニア・関税後）</span><span class="pill" id="hpill">—</span></div>
+      <div class="big" id="hnet">—</div>
+      <div class="sub">
+        <div><span>利益率</span><span id="hpct">—</span></div>
+        <div><span>原価利益率（ROI）</span><span id="hroi">—</span></div>
+        <div><span>原価合計</span><span id="hcost">—</span></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>利益の見方</h2>
+      <div class="scroll">
+      <table class="t">
+        <thead><tr><th></th><th class="r">利益 $</th><th class="r">純利益 ¥</th><th class="r">利益率</th></tr></thead>
+        <tbody>
+          <tr><td>広告・関税後</td><td class="r" id="t1u"></td><td class="r" id="t1y"></td><td class="r" id="t1p"></td></tr>
+          <tr><td>＋ペイオニア後</td><td class="r" id="t2u"></td><td class="r" id="t2y"></td><td class="r" id="t2p"></td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section class="panel solve">
+      <h2>逆算</h2>
+      <label class="f"><span class="l">目標の利益率</span>
+        <span class="w"><input id="target" inputmode="decimal" autocomplete="off" aria-label="目標の利益率"><i>%</i></span></label>
+      <div class="out">
+        <div><span>目標を満たす売価</span><span id="sTarget">—</span></div>
+        <div><span>損益ゼロの売価</span><span id="sBreak">—</span></div>
+      </div>
+      <p class="hint">送料・税金・仕入れは今の入力のまま、売価だけを動かして計算します。</p>
+    </section>
+
+    <section class="panel">
+      <h2>値引きしたときの利益</h2>
+      <div class="scroll">
+      <table class="t">
+        <thead><tr><th>値引き</th><th class="r">売価 $</th><th class="r">純利益 ¥</th><th class="r">利益率</th></tr></thead>
+        <tbody id="disc"></tbody>
+      </table>
+      </div>
+    </section>
+
+    <details class="panel">
+      <summary>計算の内訳</summary>
+      <div class="rows" id="rows"></div>
+    </details>
+
+    <section class="panel">
+      <h2>保存と共有</h2>
+      <div class="name-in">
+        <input id="memo" placeholder="商品名やメモ（任意）" aria-label="保存名" maxlength="60" autocomplete="off">
+        <button type="button" class="btn pri" id="save">保存</button>
+      </div>
+      <div class="hist" id="hist"></div>
+      <div class="actions" style="margin-top:12px">
+        <button type="button" class="btn" id="copy">結果をコピー</button>
+      </div>
+    </section>
+
+    <details class="panel">
+      <summary>手数料の設定</summary>
+      <div class="grid2">
+        <label class="f"><span class="l">最終価値手数料</span><span class="w"><input id="s-fvf" inputmode="decimal" autocomplete="off"><i>%</i></span></label>
+        <label class="f"><span class="l">海外手数料</span><span class="w"><input id="s-intl" inputmode="decimal" autocomplete="off"><i>%</i></span></label>
+        <label class="f"><span class="l">海外手数料の割引</span><span class="w"><input id="s-idisc" inputmode="decimal" autocomplete="off"><i>%</i></span></label>
+        <label class="f"><span class="l">固定手数料</span><span class="w"><i>$</i><input id="s-fixed" inputmode="decimal" autocomplete="off"></span></label>
+        <label class="f"><span class="l">手数料にかかる税</span><span class="w"><input id="s-fvat" inputmode="decimal" autocomplete="off"><i>%</i></span></label>
+        <label class="f"><span class="l">広告費</span><span class="w"><input id="s-ad" inputmode="decimal" autocomplete="off"><i>%</i></span></label>
+        <label class="f"><span class="l">ペイオニア</span><span class="w"><input id="s-pay" inputmode="decimal" autocomplete="off"><i>%</i></span></label>
+        <label class="f"><span class="l">MPF（米国通関）</span><span class="w"><i>$</i><input id="s-mpf" inputmode="decimal" autocomplete="off"></span></label>
+        <label class="f"><span class="l">輸入通関手数料（エコノミー）</span><span class="w"><i>¥</i><input id="s-cust" inputmode="decimal" autocomplete="off"></span></label>
+        <label class="f"><span class="l">関税処理手数料</span><span class="w"><input id="s-hand" inputmode="decimal" autocomplete="off"><i>%</i></span></label>
+      </div>
+      <p class="hint">売上額（売価＋送料＋税金）に対して手数料がかかる前提です。広告費やペイオニアを使わないときは 0 にしてください。</p>
+      <label class="f span2" style="margin-top:10px; grid-template-columns:auto 1fr; align-items:center; gap:10px">
+        <input type="checkbox" id="s-adtax" style="width:20px;height:20px;margin:0">
+        <span class="l" style="font-size:14px;color:var(--ink)">広告費にも手数料と同じ税を加算する（eBayの明細どおり）</span>
+      </label>
+      <label class="f span2" style="margin-top:10px; grid-template-columns:auto 1fr; align-items:center; gap:10px">
+        <input type="checkbox" id="s-live" style="width:20px;height:20px;margin:0">
+        <span class="l" style="font-size:14px;color:var(--ink)">関税等の円換算に現在レートを使う（元の表と同じ）</span>
+      </label>
+      <div class="actions" style="margin-top:12px"><button type="button" class="btn" id="reset-s">設定を初期値に戻す</button></div>
+    </details>
+  </div>
+</div>
+
+<footer>手数料率は入力時点の目安です。eBayや通関の最新の条件は各自で確認してください。</footer>
+</div>
+
+<div class="bar" id="bar" role="status" aria-live="polite">
+  <div class="a"><span>純利益（ペイオニア後）</span><b id="bnet">—</b></div>
+  <div class="b"><span>利益率</span><b id="bpct">—</b></div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var MODE_LABEL = { DDP: "US DDP", ECO: "US エコノミー", DDU: "US以外 DDU" };
+  var DEF_IN = { mode: "DDP", duty: "13", duty_DDP: "13", duty_ECO: "10", rate: "156", cost: "48000", ship: "5000", dom: "0", price: "264.99", bship: "25", btax: "0" };
+  var DEF_S  = { fvf: "12.7", intl: "1.35", idisc: "0.15", fixed: "0.4", fvat: "10", ad: "2", adTax: true, pay: "2", mpf: "2.69", cust: "245", hand: "2.1", live: true, target: "15" };
+  var KEY_IN = "ebaycalc.in.v1", KEY_S = "ebaycalc.s.v1", KEY_H = "ebaycalc.hist.v1", KEY_R = "ebaycalc.rate.v1";
+  var DISCOUNTS = [5, 8, 10, 15, 20];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var inp = Object.assign({}, DEF_IN);
+  var set = Object.assign({}, DEF_S);
+  var live = null;   // { v: number, t: ms }
+  var hist = [];
+
+  /* ---------- storage ---------- */
+  function load(key, fallback) {
+    try { var s = localStorage.getItem(key); return s ? JSON.parse(s) : fallback; } catch (e) { return fallback; }
+  }
+  function save(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
+
+  /* ---------- number helpers ---------- */
+  function norm(s) {
+    return String(s == null ? "" : s)
+      .replace(/[０-９．，－]/g, function (c) { return { "．": ".", "，": "", "－": "-" }[c] || String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+      .replace(/[,\s¥$%]/g, "");
+  }
+  function num(s) { var n = parseFloat(norm(s)); return isFinite(n) ? n : 0; }
+  function yen(n) {
+    var r = Math.round(n);
+    return (r < 0 ? "-¥" : "¥") + Math.abs(r).toLocaleString("ja-JP");
+  }
+  function usd(n) {
+    var r = Math.round(n * 100) / 100;
+    return (r < 0 ? "-$" : "$") + Math.abs(r).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function pct(n) { return (Math.round(n * 100) / 100).toFixed(2) + "%"; }
+  function cls(n) { return n < 0 ? "neg" : "pos"; }
+
+  /* ---------- calculation (出品表と同じ式) ---------- */
+  function calc(i, s, liveRate, priceOverride) {
+    var price = priceOverride != null ? priceOverride : i.price;
+    var A = price + i.bship + i.btax;                          // A$
+    var dutyOn = i.mode !== "DDU";
+    var duty = dutyOn ? price * i.duty / 100 : 0;              // 売価×関税率
+    var mpf = i.mode === "DDP" ? s.mpf : 0;                    // DDPのみ
+    var cust = (i.mode === "ECO" && i.rate) ? s.cust / i.rate : 0;   // エコノミーの輸入通関手数料（円→ドル）
+    var hand = dutyOn ? (duty + mpf) * s.hand / 100 : 0;       // 関税処理手数料
+    var dutyUsd = duty + mpf + cust + hand;                    // B
+    var dutyRate = (s.live && liveRate) ? liveRate : i.rate;
+    var dutyYen = dutyUsd * dutyRate;
+
+    var fvf = A * s.fvf / 100, intl = A * (s.intl - s.idisc) / 100, fixed = s.fixed;   // 海外手数料はボリューム割引後
+    var feeSub = fvf + intl + fixed;
+    var feeTax = feeSub * s.fvat / 100;
+    var fee = feeSub + feeTax;                                 // C
+    var ac = A - fee;                                          // A-C
+    var ad = A * s.ad / 100 * (s.adTax ? 1 + s.fvat / 100 : 1);   // 広告費（税込）
+    var profitD = ac - ad;                                     // D
+    var pay = profitD * s.pay / 100;
+    var profitP = profitD - pay;
+
+    var rev = A * i.rate;
+    var costYen = i.cost + i.ship + i.dom + dutyYen;
+    var netD = profitD * i.rate - costYen;
+    var netP = profitP * i.rate - costYen;
+    return {
+      price: price, A: A, duty: duty, mpf: mpf, cust: cust, hand: hand, dutyUsd: dutyUsd, dutyYen: dutyYen, dutyRate: dutyRate,
+      fvf: fvf, intl: intl, fixed: fixed, feeTax: feeTax, fee: fee, ac: ac, ad: ad, profitD: profitD, pay: pay, profitP: profitP,
+      rev: rev, costYen: costYen, netD: netD, netP: netP,
+      marginD: rev ? netD / rev * 100 : 0,
+      marginP: rev ? netP / rev * 100 : 0,
+      roi: costYen ? netP / costYen * 100 : 0
+    };
+  }
+
+  // 売価に対して純利益は一次式なので、2点から解ける
+  function solve(i, s, target) {
+    function g(p) { var r = calc(i, s, live && live.v, p); return r.netP - target / 100 * r.rev; }
+    var g0 = g(0), g1 = g(100), slope = (g1 - g0) / 100;
+    if (!(slope > 0)) return null;
+    var p = -g0 / slope;
+    return p > 0 ? p : 0;
+  }
+
+  /* ---------- read state ---------- */
+  function readInputs() {
+    return {
+      mode: inp.mode,
+      duty: num(inp.duty), rate: num(inp.rate), cost: num(inp.cost), ship: num(inp.ship), dom: num(inp.dom),
+      price: num(inp.price), bship: num(inp.bship), btax: num(inp.btax)
+    };
+  }
+  function readSettings() {
+    return {
+      fvf: num(set.fvf), intl: num(set.intl), idisc: num(set.idisc), fixed: num(set.fixed), fvat: num(set.fvat),
+      ad: num(set.ad), adTax: !!set.adTax, pay: num(set.pay), mpf: num(set.mpf), cust: num(set.cust), hand: num(set.hand), live: !!set.live
+    };
+  }
+
+  /* ---------- render ---------- */
+  function tone(margin, net) {
+    var t = num(set.target);
+    if (net < 0) return "loss";
+    if (margin < t) return "warn";
+    return "gain";
+  }
+  var PILL = { gain: "目標クリア", warn: "目標未満", loss: "赤字" };
+
+  function render() {
+    var i = readInputs(), s = readSettings();
+    var r = calc(i, s, live && live.v);
+    var tn = tone(r.marginP, r.netP);
+
+    var hero = $("hero");
+    hero.className = "hero " + tn;
+    $("hpill").textContent = PILL[tn];
+    $("hnet").textContent = yen(r.netP);
+    $("hpct").textContent = pct(r.marginP);
+    $("hroi").textContent = pct(r.roi);
+    $("hcost").textContent = yen(r.costYen);
+
+    $("bar").className = "bar " + tn;
+    $("bnet").textContent = yen(r.netP);
+    $("bpct").textContent = pct(r.marginP);
+
+    function cell(id, text, n) { var e = $(id); e.textContent = text; e.className = "r " + cls(n); }
+    cell("t1u", usd(r.profitD), r.profitD); cell("t1y", yen(r.netD), r.netD); cell("t1p", pct(r.marginD), r.netD);
+    cell("t2u", usd(r.profitP), r.profitP); cell("t2y", yen(r.netP), r.netP); cell("t2p", pct(r.marginP), r.netP);
+
+    // 逆算
+    var tp = solve(i, s, num(set.target));
+    var bp = solve(i, s, 0);
+    $("sTarget").textContent = tp == null ? "—" : usd(tp);
+    $("sBreak").textContent = bp == null ? "—" : usd(bp);
+
+    // 値引き
+    var body = $("disc");
+    body.textContent = "";
+    DISCOUNTS.forEach(function (d) {
+      var rr = calc(i, s, live && live.v, i.price * (1 - d / 100));
+      var tr = document.createElement("tr");
+      [[d + "% off", ""], [usd(rr.price), "r"], [yen(rr.netP), "r " + cls(rr.netP)], [pct(rr.marginP), "r " + cls(rr.netP)]].forEach(function (c) {
+        var td = document.createElement("td"); td.textContent = c[0]; if (c[1]) td.className = c[1]; tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+
+    renderRows(i, s, r);
+    renderLive();
+  }
+
+  function renderRows(i, s, r) {
+    var ddp = i.mode !== "DDU";
+    var L = [];
+    function head(t) { L.push({ h: t }); }
+    function row(n, u, y, sum, small) { L.push({ n: n, u: u, y: y, sum: sum, small: small }); }
+    var rt = i.rate;
+    head("売上（ドル）");
+    row("売上 A", usd(r.A), yen(r.A * rt), true, "売価＋送料＋税金");
+    if (ddp) {
+      head("関税等（セラー負担）");
+      row("関税", usd(r.duty), yen(r.duty * r.dutyRate), false, i.duty + "% × 売価");
+      if (i.mode === "DDP") row("MPF", usd(r.mpf), yen(r.mpf * r.dutyRate));
+      if (i.mode === "ECO") row("輸入通関手数料", usd(r.cust), yen(r.cust * r.dutyRate), false, "¥" + s.cust);
+      row("関税処理手数料", usd(r.hand), yen(r.hand * r.dutyRate), false, s.hand + "%");
+      row("関税等合計 B", usd(r.dutyUsd), yen(r.dutyYen), true, "換算 ¥" + (Math.round(r.dutyRate * 100) / 100));
+    }
+    head("eBay手数料");
+    row("最終価値手数料", usd(r.fvf), yen(r.fvf * rt), false, s.fvf + "%");
+    row("海外手数料", usd(r.intl), yen(r.intl * rt), false, s.intl + "% − 割引" + s.idisc + "%");
+    row("固定手数料", usd(r.fixed), yen(r.fixed * rt));
+    row("手数料にかかる税", usd(r.feeTax), yen(r.feeTax * rt), false, s.fvat + "%");
+    row("手数料計 C", usd(r.fee), yen(r.fee * rt), true);
+    head("利益（ドル）");
+    row("A − C", usd(r.ac), yen(r.ac * rt));
+    row("広告費", usd(r.ad), yen(r.ad * rt), false, s.ad + "%" + (s.adTax ? " ＋税" + s.fvat + "%" : ""));
+    row("利益 D", usd(r.profitD), yen(r.profitD * rt), true);
+    row("ペイオニア", usd(r.pay), yen(r.pay * rt), false, s.pay + "%");
+    row("ペイオニア後の利益", usd(r.profitP), yen(r.profitP * rt), true);
+    head("原価（円）");
+    row("仕入れ", "", yen(i.cost));
+    row("輸出送料", "", yen(i.ship));
+    row("国内送料", "", yen(i.dom));
+    if (ddp) row("関税等", "", yen(r.dutyYen));
+    row("原価合計", "", yen(r.costYen), true);
+
+    var box = $("rows");
+    box.textContent = "";
+    L.forEach(function (x) {
+      var d = document.createElement("div");
+      if (x.h) { d.className = "row head"; var a = document.createElement("span"); a.textContent = x.h; d.appendChild(a); box.appendChild(d); return; }
+      d.className = "row" + (x.sum ? " sum" : "");
+      var n = document.createElement("span"); n.className = "n"; n.textContent = x.n;
+      if (x.small) { var sm = document.createElement("small"); sm.textContent = "  " + x.small; n.appendChild(sm); }
+      var u = document.createElement("span"); u.className = "v"; u.textContent = x.u;
+      var y = document.createElement("span"); y.className = "v"; y.textContent = x.y;
+      d.appendChild(n); d.appendChild(u); d.appendChild(y);
+      box.appendChild(d);
+    });
+  }
+
+  /* ---------- live rate ---------- */
+  function renderLive() {
+    var nowv = $("nowv"), nowd = $("nowd"), ap = $("apply");
+    if (!live) {
+      nowv.textContent = "取得できません";
+      nowd.textContent = "手入力してください";
+      ap.disabled = true;
+      return;
+    }
+    nowv.textContent = "¥" + live.v.toFixed(2);
+    var d = live.v - num(inp.rate);
+    nowd.textContent = Math.abs(d) < 0.005 ? "入力と同じ" : "入力との差 " + (d > 0 ? "+" : "") + d.toFixed(2);
+    nowd.style.color = "";
+    ap.disabled = Math.abs(d) < 0.005;
+  }
+  function setLive(v, t) {
+    if (!(v > 50 && v < 500)) return false;
+    live = { v: v, t: t || Date.now() };
+    save(KEY_R, live);
+    return true;
+  }
+  function fetchJson(url) {
+    var ctl = typeof AbortController === "function" ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 7000);
+    return fetch(url, { cache: "no-store", signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { clearTimeout(timer); if (!r.ok) throw new Error("http " + r.status); return r.json(); });
+  }
+  function refreshRate(manual) {
+    $("nowv").textContent = "取得中…";
+    var sources = [
+      function () { return fetchJson("https://open.er-api.com/v6/latest/USD").then(function (j) { return j.rates && j.rates.JPY; }); },
+      function () { return fetchJson("https://api.frankfurter.app/latest?from=USD&to=JPY").then(function (j) { return j.rates && j.rates.JPY; }); }
+    ];
+    var k = 0;
+    function next() {
+      if (k >= sources.length) { renderLive(); render(); if (manual) toast("レートを取得できませんでした"); return; }
+      sources[k++]().then(function (v) {
+        if (setLive(Number(v))) { render(); if (manual) toast("現在レートを更新しました"); }
+        else next();
+      }).catch(next);
+    }
+    next();
+  }
+
+  /* ---------- history ---------- */
+  function renderHist() {
+    var box = $("hist");
+    box.textContent = "";
+    if (!hist.length) {
+      var e = document.createElement("div"); e.className = "empty"; e.textContent = "保存した計算はまだありません。"; box.appendChild(e); return;
+    }
+    hist.forEach(function (h) {
+      var it = document.createElement("div"); it.className = "it";
+      var l = document.createElement("div");
+      var nm = document.createElement("div"); nm.className = "nm"; nm.textContent = h.name || "名称なし";
+      var meta = document.createElement("div"); meta.className = "meta";
+      meta.textContent = yen(h.net) + " / " + pct(h.margin) + " / " + (MODE_LABEL[h.mode] || h.mode);
+      l.appendChild(nm); l.appendChild(meta);
+      var b = document.createElement("div"); b.className = "btns";
+      var o = document.createElement("button"); o.type = "button"; o.className = "chip"; o.textContent = "開く";
+      o.addEventListener("click", function () { inp = Object.assign({}, DEF_IN, h.inp); syncInputs(); persist(); render(); toast("条件を読み込みました"); });
+      var x = document.createElement("button"); x.type = "button"; x.className = "chip"; x.textContent = "削除"; x.setAttribute("aria-label", "削除");
+      x.addEventListener("click", function () { hist = hist.filter(function (z) { return z.id !== h.id; }); save(KEY_H, hist); renderHist(); });
+      b.appendChild(o); b.appendChild(x);
+      it.appendChild(l); it.appendChild(b); box.appendChild(it);
+    });
+  }
+
+  /* ---------- UI plumbing ---------- */
+  var IN_IDS = ["duty", "rate", "cost", "ship", "dom", "price", "bship", "btax"];
+  var S_IDS = ["fvf", "intl", "idisc", "fixed", "fvat", "ad", "pay", "mpf", "cust", "hand"];
+
+  function syncInputs() {
+    IN_IDS.forEach(function (k) { $(k).value = inp[k]; });
+    S_IDS.forEach(function (k) { $("s-" + k).value = set[k]; });
+    $("s-live").checked = !!set.live;
+    $("s-adtax").checked = !!set.adTax;
+    $("target").value = set.target;
+    syncMode();
+  }
+  function syncMode() {
+    var m = inp.mode, on = m !== "DDU";
+    $("m-ddp").setAttribute("aria-pressed", String(m === "DDP"));
+    $("m-eco").setAttribute("aria-pressed", String(m === "ECO"));
+    $("m-ddu").setAttribute("aria-pressed", String(m === "DDU"));
+    $("f-duty").classList.toggle("off", !on);
+    $("duty").disabled = !on;
+  }
+  // モードごとに関税率を覚えておき、切り替えたときに戻す（DDP 13% / エコノミー 10% など）
+  function setMode(m) {
+    if (inp.mode !== "DDU") inp["duty_" + inp.mode] = inp.duty;
+    if (m !== "DDU") { inp.duty = inp["duty_" + m] != null ? inp["duty_" + m] : inp.duty; $("duty").value = inp.duty; }
+    inp.mode = m; syncMode(); persist(); render();
+  }
+  function persist() { save(KEY_IN, inp); save(KEY_S, set); }
+
+  var toastTimer;
+  function toast(msg) {
+    var t = $("toast"); t.textContent = msg; t.classList.add("on");
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("on"); }, 1800);
+  }
+
+  function summaryText() {
+    var i = readInputs(), s = readSettings(), r = calc(i, s, live && live.v);
+    var lines = [
+      "【eBay利益計算】" + ($("memo").value.trim() ? " " + $("memo").value.trim() : ""),
+      (i.mode === "DDU" ? MODE_LABEL.DDU + " 関税なし" : MODE_LABEL[i.mode] + " 関税" + i.duty + "%") + " / レート ¥" + i.rate,
+      "仕入 " + yen(i.cost) + " / 輸出送料 " + yen(i.ship) + " / 国内送料 " + yen(i.dom),
+      "売価 " + usd(i.price) + " / 送料 " + usd(i.bship) + " / 税 " + usd(i.btax),
+      "原価合計 " + yen(r.costYen),
+      "純利益（広告・関税後） " + yen(r.netD) + "（" + pct(r.marginD) + "）",
+      "純利益（ペイオニア後） " + yen(r.netP) + "（" + pct(r.marginP) + "）",
+      "ROI " + pct(r.roi)
+    ];
+    return lines.join("\n");
+  }
+  function copyText(text) {
+    function fallback() {
+      var ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand("copy"); } catch (e) {}
+      document.body.removeChild(ta);
+      toast(ok ? "コピーしました" : "コピーできませんでした");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast("コピーしました"); }, fallback);
+    } else fallback();
+  }
+
+  function init() {
+    var si = load(KEY_IN, null), ss = load(KEY_S, null), sh = load(KEY_H, []);
+    if (si) { inp = Object.assign({}, DEF_IN, si); $("exhint").textContent = "前回の入力を復元しました。"; }
+    if (ss) set = Object.assign({}, DEF_S, ss);
+    hist = Array.isArray(sh) ? sh : [];
+    var sr = load(KEY_R, null);
+    if (sr && sr.v > 50 && Date.now() - sr.t < 6 * 3600 * 1000) live = sr;
+    syncInputs();
+
+    IN_IDS.forEach(function (k) {
+      var el = $(k);
+      el.addEventListener("input", function () { inp[k] = el.value; persist(); render(); });
+      el.addEventListener("focus", function () { setTimeout(function () { try { el.select(); } catch (e) {} }, 0); });
+    });
+    S_IDS.forEach(function (k) {
+      var el = $("s-" + k);
+      el.addEventListener("input", function () { set[k] = el.value; persist(); render(); });
+      el.addEventListener("focus", function () { setTimeout(function () { try { el.select(); } catch (e) {} }, 0); });
+    });
+    $("s-live").addEventListener("change", function (e) { set.live = e.target.checked; persist(); render(); });
+    $("s-adtax").addEventListener("change", function (e) { set.adTax = e.target.checked; persist(); render(); });
+    $("target").addEventListener("input", function (e) { set.target = e.target.value; persist(); render(); });
+    $("target").addEventListener("focus", function (e) { var el = e.target; setTimeout(function () { try { el.select(); } catch (x) {} }, 0); });
+
+    $("m-ddp").addEventListener("click", function () { setMode("DDP"); });
+    $("m-eco").addEventListener("click", function () { setMode("ECO"); });
+    $("m-ddu").addEventListener("click", function () { setMode("DDU"); });
+
+    $("apply").addEventListener("click", function () {
+      if (!live) return;
+      inp.rate = String(Math.round(live.v * 100) / 100);
+      $("rate").value = inp.rate; persist(); render(); toast("レートを適用しました");
+    });
+    $("refresh").addEventListener("click", function () { refreshRate(true); });
+
+    $("save").addEventListener("click", function () {
+      var i = readInputs(), s = readSettings(), r = calc(i, s, live && live.v);
+      hist.unshift({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), name: $("memo").value.trim(), inp: Object.assign({}, inp), net: r.netP, margin: r.marginP, mode: i.mode });
+      hist = hist.slice(0, 30);
+      save(KEY_H, hist); $("memo").value = ""; renderHist(); toast("保存しました");
+    });
+    $("copy").addEventListener("click", function () { copyText(summaryText()); });
+    $("reset-s").addEventListener("click", function () { set = Object.assign({}, DEF_S); syncInputs(); persist(); render(); toast("設定を戻しました"); });
+
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden && (!live || Date.now() - live.t > 10 * 60 * 1000)) refreshRate(false);
+    });
+
+    renderHist();
+    render();
+    if (!live || Date.now() - live.t > 10 * 60 * 1000) refreshRate(false);
+  }
+  init();
+})();
+</script>
+</body>
+</html>
