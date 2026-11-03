@@ -180,6 +180,19 @@ details.panel[open] > summary { margin-bottom: 12px; }
 .hist .it .meta { font-size: 12.5px; color: var(--muted); font-family: var(--font-num); }
 .hist .it .btns { display: flex; gap: 6px; }
 .hist .empty { color: var(--muted); font-size: 13px; }
+.pre { display: grid; grid-template-columns: minmax(0, 1fr) 92px auto auto; gap: 6px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.pre:first-child { border-top: 0; padding-top: 0; }
+.pre .pn { font: inherit; font-size: 16px; background: var(--field); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; min-height: 44px; min-width: 0; width: 100%; }
+.pre .pw { display: flex; align-items: center; background: var(--field); border: 1px solid var(--line); border-radius: 10px; min-height: 44px; padding: 0 10px; gap: 4px; }
+.pre .pw input { flex: 1; min-width: 0; width: 100%; border: 0; background: transparent; color: var(--ink); font-family: var(--font-num); font-size: 17px; font-weight: 500; text-align: right; outline: none; padding: 8px 0; }
+.pre .pw i { font-style: normal; color: var(--muted); }
+.pre .pn:focus-visible, .pre .pw:focus-within { border-color: var(--accent); outline: none; }
+.pre .chip { min-height: 44px; }
+.duty-empty { color: var(--muted); font-size: 13px; }
+@media (max-width: 480px) {
+  .pre { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .pre .pn { grid-column: 1 / -1; }
+}
 .name-in { display: flex; gap: 8px; }
 .name-in input { flex: 1; min-width: 0; font: inherit; font-size: 16px; background: var(--field); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; min-height: 44px; }
 
@@ -261,10 +274,10 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
       <div class="grid2">
         <label class="f span2"><span class="l">売価</span>
           <span class="w"><i>$</i><input id="price" inputmode="decimal" autocomplete="off" aria-label="売価"></span></label>
-        <label class="f"><span class="l">バイヤー負担送料</span>
-          <span class="w"><i>$</i><input id="bship" inputmode="decimal" autocomplete="off" aria-label="バイヤー負担送料"></span></label>
         <label class="f"><span class="l">バイヤー負担税金</span>
           <span class="w"><i>$</i><input id="btax" inputmode="decimal" autocomplete="off" aria-label="バイヤー負担税金"></span></label>
+        <label class="f"><span class="l">バイヤー負担送料</span>
+          <span class="w"><i>$</i><input id="bship" inputmode="decimal" autocomplete="off" aria-label="バイヤー負担送料"></span></label>
       </div>
       <p class="hint" id="exhint">入力欄は例の数字です。実際の条件に書き換えてください。</p>
     </section>
@@ -295,6 +308,16 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
       </div>
     </section>
 
+    <section class="panel">
+      <h2>値引きしたときの利益</h2>
+      <div class="scroll">
+      <table class="t">
+        <thead><tr><th>値引き</th><th class="r">売価 $</th><th class="r">純利益 ¥</th><th class="r">利益率</th></tr></thead>
+        <tbody id="disc"></tbody>
+      </table>
+      </div>
+    </section>
+
     <section class="panel solve">
       <h2>逆算</h2>
       <label class="f"><span class="l">目標の利益率</span>
@@ -306,20 +329,17 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
       <p class="hint">送料・税金・仕入れは今の入力のまま、売価だけを動かして計算します。</p>
     </section>
 
-    <section class="panel">
-      <h2>値引きしたときの利益</h2>
-      <div class="scroll">
-      <table class="t">
-        <thead><tr><th>値引き</th><th class="r">売価 $</th><th class="r">純利益 ¥</th><th class="r">利益率</th></tr></thead>
-        <tbody id="disc"></tbody>
-      </table>
-      </div>
-    </section>
-
     <details class="panel">
       <summary>計算の内訳</summary>
       <div class="rows" id="rows"></div>
     </details>
+
+    <section class="panel">
+      <h2>関税率メモ</h2>
+      <div id="duties"></div>
+      <div class="actions" style="margin-top:10px"><button type="button" class="btn" id="duty-add">＋ 追加</button></div>
+      <p class="hint">品名と関税率は自由に書き換えられます。入力すると自動で保存され、「適用」を押すと上の関税率に入ります。</p>
+    </section>
 
     <section class="panel">
       <h2>保存と共有</h2>
@@ -377,7 +397,8 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
   var MODE_LABEL = { DDP: "US DDP", ECO: "US エコノミー", DDU: "US以外 DDU" };
   var DEF_IN = { mode: "DDP", duty: "13", duty_DDP: "13", duty_ECO: "10", rate: "156", cost: "48000", ship: "5000", dom: "0", price: "264.99", bship: "25", btax: "0" };
   var DEF_S  = { fvf: "12.7", intl: "1.35", idisc: "0.15", fixed: "0.4", fvat: "10", ad: "2", adTax: true, pay: "2", mpf: "2.69", cust: "245", hand: "2.1", live: true, target: "15" };
-  var KEY_IN = "ebaycalc.in.v1", KEY_S = "ebaycalc.s.v1", KEY_H = "ebaycalc.hist.v1", KEY_R = "ebaycalc.rate.v1";
+  var KEY_IN = "ebaycalc.in.v1", KEY_S = "ebaycalc.s.v1", KEY_H = "ebaycalc.hist.v1", KEY_R = "ebaycalc.rate.v1", KEY_D = "ebaycalc.duties.v1";
+  var DEF_DUTIES = [{ id: "d1", name: "ジャケット　コットン", rate: "13" }, { id: "d2", name: "ジャケット　レザー", rate: "6" }];
   var DISCOUNTS = [5, 8, 10, 15, 20];
 
   var $ = function (id) { return document.getElementById(id); };
@@ -385,6 +406,7 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
   var set = Object.assign({}, DEF_S);
   var live = null;   // { v: number, t: ms }
   var hist = [];
+  var duties = [];
 
   /* ---------- storage ---------- */
   function load(key, fallback) {
@@ -641,6 +663,42 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
     });
   }
 
+  /* ---------- 関税率メモ ---------- */
+  function saveDuties() { save(KEY_D, duties); }
+  function applyDuty(d) {
+    if (inp.mode === "DDU") { toast("DDUでは関税を使いません"); return; }
+    var r = norm(d.rate);
+    inp.duty = r; inp["duty_" + inp.mode] = r;
+    $("duty").value = r; persist(); render();
+    toast("関税率を" + num(r) + "%にしました");
+  }
+  function renderDuties() {
+    var box = $("duties");
+    box.textContent = "";
+    if (!duties.length) {
+      var e = document.createElement("div"); e.className = "duty-empty"; e.textContent = "メモはまだありません。「＋ 追加」で作れます。"; box.appendChild(e); return;
+    }
+    duties.forEach(function (d) {
+      var row = document.createElement("div"); row.className = "pre";
+      var nm = document.createElement("input"); nm.type = "text"; nm.className = "pn"; nm.value = d.name; nm.maxLength = 40;
+      nm.placeholder = "品名（例 ジャケット　コットン）"; nm.setAttribute("aria-label", "品名"); nm.autocomplete = "off";
+      nm.addEventListener("input", function () { d.name = nm.value; saveDuties(); });
+      var pw = document.createElement("span"); pw.className = "pw";
+      var rt = document.createElement("input"); rt.type = "text"; rt.setAttribute("inputmode", "decimal"); rt.value = d.rate;
+      rt.setAttribute("aria-label", "関税率"); rt.autocomplete = "off";
+      rt.addEventListener("input", function () { d.rate = rt.value; saveDuties(); });
+      rt.addEventListener("focus", function () { setTimeout(function () { try { rt.select(); } catch (x) {} }, 0); });
+      var pc = document.createElement("i"); pc.textContent = "%";
+      pw.appendChild(rt); pw.appendChild(pc);
+      var ap = document.createElement("button"); ap.type = "button"; ap.className = "chip pri"; ap.textContent = "適用";
+      ap.addEventListener("click", function () { applyDuty(d); });
+      var del = document.createElement("button"); del.type = "button"; del.className = "chip"; del.textContent = "削除"; del.setAttribute("aria-label", "削除");
+      del.addEventListener("click", function () { duties = duties.filter(function (z) { return z.id !== d.id; }); saveDuties(); renderDuties(); });
+      row.appendChild(nm); row.appendChild(pw); row.appendChild(ap); row.appendChild(del);
+      box.appendChild(row);
+    });
+  }
+
   /* ---------- UI plumbing ---------- */
   var IN_IDS = ["duty", "rate", "cost", "ship", "dom", "price", "bship", "btax"];
   var S_IDS = ["fvf", "intl", "idisc", "fixed", "fvat", "ad", "pay", "mpf", "cust", "hand"];
@@ -708,6 +766,8 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
     if (si) { inp = Object.assign({}, DEF_IN, si); $("exhint").textContent = "前回の入力を復元しました。"; }
     if (ss) set = Object.assign({}, DEF_S, ss);
     hist = Array.isArray(sh) ? sh : [];
+    var sd = load(KEY_D, null);
+    duties = Array.isArray(sd) ? sd : DEF_DUTIES.map(function (d) { return Object.assign({}, d); });
     var sr = load(KEY_R, null);
     if (sr && sr.v > 50 && Date.now() - sr.t < 6 * 3600 * 1000) live = sr;
     syncInputs();
@@ -745,6 +805,12 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
       save(KEY_H, hist); $("memo").value = ""; renderHist(); toast("保存しました");
     });
     $("copy").addEventListener("click", function () { copyText(summaryText()); });
+    $("duty-add").addEventListener("click", function () {
+      duties.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 6), name: "", rate: "" });
+      saveDuties(); renderDuties();
+      var names = document.querySelectorAll("#duties .pn");
+      if (names.length) names[names.length - 1].focus();
+    });
     $("reset-s").addEventListener("click", function () { set = Object.assign({}, DEF_S); syncInputs(); persist(); render(); toast("設定を戻しました"); });
 
     document.addEventListener("visibilitychange", function () {
@@ -752,6 +818,7 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
     });
 
     renderHist();
+    renderDuties();
     render();
     if (!live || Date.now() - live.t > 10 * 60 * 1000) refreshRate(false);
   }
