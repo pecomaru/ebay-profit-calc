@@ -120,6 +120,9 @@ h1 small { display: block; font-size: 12px; font-weight: 400; color: var(--muted
 .f .w i { font-style: normal; color: var(--muted); font-size: 14px; flex: none; }
 .f input { flex: 1; min-width: 0; width: 100%; border: 0; background: transparent; color: var(--ink); font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 500; padding: 10px 0; outline: none; text-align: right; }
 .f.off { opacity: .45; }
+.lrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.uw { display: flex; gap: 6px; }
+.uw .chip { min-height: 38px; padding: 4px 14px; }
 
 .ratebox { display: grid; gap: 8px; }
 .now { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--muted); background: var(--field); border: 1px dashed var(--line); border-radius: 10px; padding: 8px 10px; }
@@ -276,8 +279,16 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
     <section class="panel" aria-labelledby="h-usd">
       <h2 id="h-usd">売値（ドル）</h2>
       <div class="grid2">
-        <label class="f span2"><span class="l">売価</span>
-          <span class="w"><i>$</i><input id="price" inputmode="decimal" autocomplete="off" aria-label="売価"></span></label>
+        <div class="f span2">
+          <div class="lrow">
+            <label class="l" for="price">売価</label>
+            <span class="uw">
+              <button type="button" class="chip" id="undo" disabled>戻す</button>
+              <button type="button" class="chip" id="redo" disabled>やり直す</button>
+            </span>
+          </div>
+          <span class="w"><i>$</i><input id="price" inputmode="decimal" autocomplete="off" aria-label="売価"></span>
+        </div>
         <label class="f"><span class="l">バイヤー負担税金</span>
           <span class="w"><i>$</i><input id="btax" inputmode="decimal" autocomplete="off" aria-label="バイヤー負担税金"></span></label>
         <label class="f"><span class="l">バイヤー負担送料</span>
@@ -411,6 +422,7 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
   var live = null;   // { v: number, t: ms }
   var hist = [];
   var duties = [];
+  var undoStack = [], redoStack = [], editSession = null;   // 入力値の戻す/やり直す
 
   /* ---------- storage ---------- */
   function load(key, fallback) {
@@ -659,7 +671,7 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
       l.appendChild(nm); l.appendChild(meta);
       var b = document.createElement("div"); b.className = "btns";
       var o = document.createElement("button"); o.type = "button"; o.className = "chip"; o.textContent = "開く";
-      o.addEventListener("click", function () { inp = Object.assign({}, DEF_IN, h.inp); syncInputs(); persist(); render(); toast("条件を読み込みました"); });
+      o.addEventListener("click", function () { change(function () { inp = Object.assign({}, DEF_IN, h.inp); }); syncInputs(); persist(); render(); toast("条件を読み込みました"); });
       var x = document.createElement("button"); x.type = "button"; x.className = "chip"; x.textContent = "削除"; x.setAttribute("aria-label", "削除");
       x.addEventListener("click", function () { hist = hist.filter(function (z) { return z.id !== h.id; }); save(KEY_H, hist); renderHist(); });
       b.appendChild(o); b.appendChild(x);
@@ -667,12 +679,49 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
     });
   }
 
+  /* ---------- 戻す / やり直す ---------- */
+  // 1つの欄を触り終えるまでが1回分。モード切替・適用・履歴の読込もそれぞれ1回分。
+  function snap() { return JSON.stringify(inp); }
+  function updateUndoUI() { $("undo").disabled = !undoStack.length; $("redo").disabled = !redoStack.length; }
+  function pushUndo(s) {
+    if (undoStack.length && undoStack[undoStack.length - 1] === s) return;
+    undoStack.push(s);
+    if (undoStack.length > 50) undoStack.shift();
+    redoStack = [];
+    updateUndoUI();
+  }
+  function change(fn) { var before = snap(); fn(); if (snap() !== before) pushUndo(before); }
+  function commitSession(keepOpen) {
+    if (editSession === null) return;
+    if (editSession !== snap()) pushUndo(editSession);
+    editSession = keepOpen ? snap() : null;
+  }
+  function restore(s) { inp = Object.assign({}, DEF_IN, JSON.parse(s)); syncInputs(); persist(); render(); }
+  function undo() {
+    var active = editSession !== null;
+    commitSession(true);
+    if (!undoStack.length) return;
+    redoStack.push(snap());
+    restore(undoStack.pop());
+    if (active) editSession = snap();
+    updateUndoUI(); toast("ひとつ前に戻しました");
+  }
+  function redo() {
+    var active = editSession !== null;
+    commitSession(true);
+    if (!redoStack.length) return;
+    undoStack.push(snap());
+    restore(redoStack.pop());
+    if (active) editSession = snap();
+    updateUndoUI(); toast("やり直しました");
+  }
+
   /* ---------- 関税率メモ ---------- */
   function saveDuties() { save(KEY_D, duties); }
   function applyDuty(d) {
     if (inp.mode === "DDU") { toast("DDUでは関税を使いません"); return; }
     var r = norm(d.rate);
-    inp.duty = r; inp["duty_" + inp.mode] = r;
+    change(function () { inp.duty = r; inp["duty_" + inp.mode] = r; });
     $("duty").value = r; persist(); render();
     toast("関税率を" + num(r) + "%にしました");
   }
@@ -729,6 +778,7 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
     if (m !== "DDU") { inp.duty = inp["duty_" + m] != null ? inp["duty_" + m] : inp.duty; $("duty").value = inp.duty; }
     inp.mode = m; syncMode(); persist(); render();
   }
+  function switchMode(m) { change(function () { setMode(m); }); }
   function persist() { save(KEY_IN, inp); save(KEY_S, set); }
 
   var toastTimer;
@@ -779,6 +829,8 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
     IN_IDS.forEach(function (k) {
       var el = $(k);
       el.addEventListener("input", function () { inp[k] = el.value; persist(); render(); });
+      el.addEventListener("focus", function () { if (editSession === null) editSession = snap(); });
+      el.addEventListener("blur", function () { commitSession(false); });
       el.addEventListener("focus", function () { setTimeout(function () { try { el.select(); } catch (e) {} }, 0); });
     });
     S_IDS.forEach(function (k) {
@@ -791,13 +843,15 @@ footer { color: var(--muted); font-size: 12px; padding: 14px 0 0; }
     $("target").addEventListener("input", function (e) { set.target = e.target.value; persist(); render(); });
     $("target").addEventListener("focus", function (e) { var el = e.target; setTimeout(function () { try { el.select(); } catch (x) {} }, 0); });
 
-    $("m-ddp").addEventListener("click", function () { setMode("DDP"); });
-    $("m-eco").addEventListener("click", function () { setMode("ECO"); });
-    $("m-ddu").addEventListener("click", function () { setMode("DDU"); });
+    $("m-ddp").addEventListener("click", function () { switchMode("DDP"); });
+    $("m-eco").addEventListener("click", function () { switchMode("ECO"); });
+    $("m-ddu").addEventListener("click", function () { switchMode("DDU"); });
+    $("undo").addEventListener("click", undo);
+    $("redo").addEventListener("click", redo);
 
     $("apply").addEventListener("click", function () {
       if (!live) return;
-      inp.rate = String(Math.round(live.v * 100) / 100);
+      change(function () { inp.rate = String(Math.round(live.v * 100) / 100); });
       $("rate").value = inp.rate; persist(); render(); toast("レートを適用しました");
     });
     $("refresh").addEventListener("click", function () { refreshRate(true); });
